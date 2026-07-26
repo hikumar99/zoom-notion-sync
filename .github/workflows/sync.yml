@@ -2,8 +2,8 @@ name: Zoom to Notion Sync
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
-  workflow_dispatch:          # manual "Run workflow" button
+    - cron: "30 8,17 * * *"   # 2:00 PM & 11:00 PM IST (cron times are UTC)
+  workflow_dispatch:           # manual "Run workflow" button
 
 concurrency:
   group: zoom-sync
