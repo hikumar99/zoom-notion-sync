@@ -225,7 +225,8 @@ def process_meeting(token, ds_id, meeting):
     download_file(mp4["download_url"], token, "recording.mp4")
     print(f"  video downloaded ({os.path.getsize('recording.mp4') / 1e6:.0f} MB)")
     if vtt:
-        download_file(vtt["download_url"], token, "transcript.vtt")
+        # Notion's upload API rejects the .vtt extension, so save as .txt
+        download_file(vtt["download_url"], token, "transcript.txt")
 
     # 2. Attendance + registrants + AI summary
     participants = get_participants(token, uuid)
@@ -238,7 +239,7 @@ def process_meeting(token, ds_id, meeting):
     video_id = upload_to_notion("recording.mp4", "video/mp4")
     attendance_id = upload_to_notion("attendance.csv", "text/csv")
     registrants_id = upload_to_notion("registrants.csv", "text/csv")
-    transcript_id = upload_to_notion("transcript.vtt", "text/vtt") if vtt else None
+    transcript_id = upload_to_notion("transcript.txt", "text/plain") if vtt else None
 
     # 4. Build page body
     children = [heading("🎥 Recording"), file_block("video", video_id)]
@@ -265,7 +266,7 @@ def process_meeting(token, ds_id, meeting):
     print("  ✅ synced to Notion")
 
     # cleanup runner disk between meetings
-    for tmp in ("recording.mp4", "transcript.vtt", "attendance.csv", "registrants.csv"):
+    for tmp in ("recording.mp4", "transcript.txt", "attendance.csv", "registrants.csv"):
         if os.path.exists(tmp):
             os.remove(tmp)
 
