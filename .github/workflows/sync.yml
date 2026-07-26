@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "30 8,17 * * *"   # 2:00 PM & 11:00 PM IST (cron times are UTC)
   workflow_dispatch:           # manual "Run workflow" button
+    inputs:
+      lookback_days:
+        description: "How many days back to sync"
+        default: "50"
 
 concurrency:
   group: zoom-sync
@@ -26,3 +30,4 @@ jobs:
           ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '7' }}
