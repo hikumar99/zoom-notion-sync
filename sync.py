@@ -35,7 +35,11 @@ def zoom_get(token, path, **params):
     )
     if r.status_code == 404:
         return None  # e.g. no summary / no registrants for this meeting
-    r.raise_for_status()
+    if not r.ok:
+        # Missing scope / no report for this meeting: log it but don't
+        # abort the whole meeting sync — video still gets uploaded.
+        print(f"  Zoom error {r.status_code} on {path}: {r.text[:300]}")
+        return None
     return r.json()
 
 def encode_uuid(uuid):
