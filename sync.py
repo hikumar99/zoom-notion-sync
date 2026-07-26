@@ -14,7 +14,7 @@ NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
 
 NOTION_VERSION = "2025-09-03"
 PART_SIZE = 15 * 1024 * 1024  # 15 MB parts (Notion allows 5-20 MB)
-LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "365"))
+LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
 
 # ---------- Zoom helpers ----------
 
