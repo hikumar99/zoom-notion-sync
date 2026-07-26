@@ -275,7 +275,11 @@ def sync_window(token, ds_id, from_date, to_date):
             params={"from": from_date.isoformat(), "to": to_date.isoformat(),
                     "page_size": 30, "next_page_token": next_token},
         ).json()
-        for meeting in data.get("meetings", []):
+        meetings = data.get("meetings", [])
+        if "meetings" not in data:
+            print("  Zoom API response:", data)  # surfaces token/scope errors
+        print(f"  found {len(meetings)} recording(s) in this window")
+        for meeting in meetings:
             try:
                 process_meeting(token, ds_id, meeting)
             except Exception as e:
