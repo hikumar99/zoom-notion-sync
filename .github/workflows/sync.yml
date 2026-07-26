@@ -7,7 +7,7 @@ on:
     inputs:
       lookback_days:
         description: "How many days back to sync"
-        default: "50"
+        default: "7"
 
 concurrency:
   group: zoom-sync
