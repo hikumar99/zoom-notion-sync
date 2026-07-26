@@ -1,4 +1,6 @@
 name: Zoom to Notion Sync
+- uses: actions/checkout@v5
+- uses: actions/setup-python@v6
 
 on:
   schedule:
