@@ -14,7 +14,7 @@ NOTION_DATABASE_ID = os.environ["NOTION_DATABASE_ID"]
 
 NOTION_VERSION = "2025-09-03"
 PART_SIZE = 15 * 1024 * 1024  # 15 MB parts (Notion allows 5-20 MB)
-LOOKBACK_DAYS = 7
+LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "7"))
 
 # ---------- Zoom helpers ----------
 
@@ -265,18 +265,15 @@ def process_meeting(token, ds_id, meeting):
         if os.path.exists(tmp):
             os.remove(tmp)
 
-def main():
-    token = zoom_token()
-    ds_id = get_data_source_id()
-    from_date = (dt.date.today() - dt.timedelta(days=LOOKBACK_DAYS)).isoformat()
-
+def sync_window(token, ds_id, from_date, to_date):
     next_token = ""
     while True:
         # 'from' is a reserved Python keyword, so build this request manually:
         data = requests.get(
             "https://api.zoom.us/v2/users/me/recordings",
             headers={"Authorization": f"Bearer {token}"},
-            params={"from": from_date, "page_size": 30, "next_page_token": next_token},
+            params={"from": from_date.isoformat(), "to": to_date.isoformat(),
+                    "page_size": 30, "next_page_token": next_token},
         ).json()
         for meeting in data.get("meetings", []):
             try:
@@ -286,6 +283,19 @@ def main():
         next_token = data.get("next_page_token", "")
         if not next_token:
             break
+
+def main():
+    token = zoom_token()
+    ds_id = get_data_source_id()
+    # Zoom's list-recordings API allows max 30 days per request,
+    # so long lookbacks (backfills) are scanned in 30-day windows.
+    start = dt.date.today() - dt.timedelta(days=LOOKBACK_DAYS)
+    end = dt.date.today() + dt.timedelta(days=1)
+    while start < end:
+        window_end = min(start + dt.timedelta(days=30), end)
+        print(f"Scanning {start} → {window_end}")
+        sync_window(token, ds_id, start, window_end)
+        start = window_end
 
 if __name__ == "__main__":
     main()
