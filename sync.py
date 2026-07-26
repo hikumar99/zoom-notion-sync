@@ -25,7 +25,10 @@ def zoom_token():
         auth=(ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET),
     )
     r.raise_for_status()
-    return r.json()["access_token"]
+    tok = r.json()
+    # First log line of every run — verify the report scope is actually attached:
+    print("Zoom token scopes:", tok.get("scope", ""))
+    return tok["access_token"]
 
 def zoom_get(token, path, **params):
     r = requests.get(
@@ -56,21 +59,23 @@ def download_file(url, token, dest):
                 f.write(chunk)
 
 def get_participants(token, uuid):
-    rows, next_token = [], ""
-    while True:
-        data = zoom_get(
-            token,
-            f"/report/meetings/{encode_uuid(uuid)}/participants",
-            page_size=300,
-            next_page_token=next_token,
-        )
-        if not data:
-            break
-        rows += data.get("participants", [])
-        next_token = data.get("next_page_token", "")
-        if not next_token:
-            break
-    return rows
+    # Primary: report endpoint (needs report:read:list_meeting_participants:admin).
+    # Fallback: past_meetings endpoint (needs meeting:read:list_past_participants:admin).
+    paths = (f"/report/meetings/{encode_uuid(uuid)}/participants",
+             f"/past_meetings/{encode_uuid(uuid)}/participants")
+    for path in paths:
+        rows, next_token = [], ""
+        while True:
+            data = zoom_get(token, path, page_size=300, next_page_token=next_token)
+            if not data:
+                break
+            rows += data.get("participants", [])
+            next_token = data.get("next_page_token", "")
+            if not next_token:
+                break
+        if rows:
+            return rows
+    return []
 
 def get_registrants(token, meeting_id):
     rows, next_token = [], ""
@@ -203,6 +208,34 @@ def file_block(block_type, upload_id):
     return {"object": "block", "type": block_type,
             block_type: {"type": "file_upload", "file_upload": {"id": upload_id}}}
 
+def aggregate_attendees(participants):
+    """One entry per person (multiple join sessions merged), sorted by total time desc."""
+    agg = {}
+    for p in participants:
+        key = (p.get("user_email") or p.get("name") or "?").lower()
+        a = agg.setdefault(key, {"name": p.get("name", ""), "email": p.get("user_email", ""),
+                                 "join_time": p.get("join_time", ""), "duration": 0})
+        a["duration"] += p.get("duration", 0)
+        a["join_time"] = min(a["join_time"], p.get("join_time", "")) or p.get("join_time", "")
+    return sorted(agg.values(), key=lambda a: a["duration"], reverse=True)
+
+def table_row(cells):
+    return {"object": "block", "type": "table_row",
+            "table_row": {"cells": [[{"type": "text", "text": {"content": str(c)[:2000]}}] for c in cells]}}
+
+def add_participants_table(page_id, attendees):
+    rows = [table_row([a["name"], a["email"], a["join_time"], round(a["duration"] / 60, 1)])
+            for a in attendees]
+    table = {"object": "block", "type": "table",
+             "table": {"table_width": 4, "has_column_header": True,
+                       "children": [table_row(["Name", "Email", "First Join", "Total (min)"])] + rows[:95]}}
+    res = notion("PATCH", f"/blocks/{page_id}/children",
+                 json={"children": [heading("👥 Participants"), table]})
+    # Notion allows ~100 blocks per request; append remaining rows in batches
+    table_id = res["results"][1]["id"]
+    for i in range(95, len(rows), 95):
+        notion("PATCH", f"/blocks/{table_id}/children", json={"children": rows[i:i + 95]})
+
 # ---------- Main ----------
 
 def process_meeting(token, ds_id, meeting):
@@ -230,6 +263,8 @@ def process_meeting(token, ds_id, meeting):
 
     # 2. Attendance + registrants + AI summary
     participants = get_participants(token, uuid)
+    attendees = aggregate_attendees(participants)
+    top6 = ", ".join(f"{a['name']} ({round(a['duration'] / 60)} min)" for a in attendees[:6])
     registrants = get_registrants(token, meeting["id"])
     summary = get_summary_text(token, uuid)
     write_participants_csv(participants, "attendance.csv")
@@ -251,18 +286,21 @@ def process_meeting(token, ds_id, meeting):
     children += text_blocks(summary or "Summary not available yet.")
 
     # 5. Create the database row
-    notion("POST", "/pages", json={
+    page = notion("POST", "/pages", json={
         "parent": {"type": "data_source_id", "data_source_id": ds_id},
         "properties": {
             "Meeting Topic": {"title": [{"text": {"content": topic}}]},
             "Date": {"date": {"start": meeting.get("start_time")}},
-            "Attended Count": {"number": len(participants)},
+            "Attended Count": {"number": len(attendees)},
             "Registered Count": {"number": len(registrants)},
             "Duration (min)": {"number": meeting.get("duration")},
+            "Top Attendees": {"rich_text": [{"text": {"content": top6[:2000]}}]},
             "Zoom UUID": {"rich_text": [{"text": {"content": uuid}}]},
         },
         "children": children,
     })
+    if attendees:
+        add_participants_table(page["id"], attendees)
     print("  ✅ synced to Notion")
 
     # cleanup runner disk between meetings
